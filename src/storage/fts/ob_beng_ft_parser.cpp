@@ -49,15 +49,34 @@ int ObBEngFTParser::get_next_token(
     }
   } else if (OB_ISNULL(token.ptr_) || OB_UNLIKELY(0 >= token.len_ || 0 >= token_freq)) {
     ret = OB_INVALID_ARGUMENT;
-  } else if (OB_ISNULL(buf = static_cast<char *>(allocator_.alloc(token.len_)))) {
-    ret = OB_ALLOCATE_MEMORY_FAILED;
   } else {
-    MEMCPY(buf, token.ptr_, token.len_);
-    word = buf;
+    // The English normalizer reuses its output buffer on the next get_next().
+    // Keep stable copies, but amortize allocator calls across adjacent tokens.
+    // Chunks are never overwritten and have the same lifetime as the old
+    // per-token allocations from allocator_.
+    if (token_copy_buffer_ == nullptr
+        || token.len_ > token_copy_capacity_ - token_copy_used_) {
+      const int64_t default_capacity = doc_.len_ < 1024 ? doc_.len_ : 1024;
+      const int64_t new_capacity = token.len_ > default_capacity
+                                     ? token.len_ : default_capacity;
+      if (OB_ISNULL(token_copy_buffer_ =
+                         static_cast<char *>(allocator_.alloc(new_capacity)))) {
+        ret = OB_ALLOCATE_MEMORY_FAILED;
+      } else {
+        token_copy_capacity_ = new_capacity;
+        token_copy_used_ = 0;
+      }
+    }
+    if (OB_SUCC(ret)) {
+      buf = token_copy_buffer_ + token_copy_used_;
+      MEMCPY(buf, token.ptr_, token.len_);
+      token_copy_used_ += token.len_;
+      word = buf;
     word_len = token.len_;
     char_len = token.len_;
-    word_freq = token_freq;
-    LOG_DEBUG("succeed to add word", K(ObString(word_len, word)), K(word_freq));
+      word_freq = token_freq;
+      LOG_DEBUG("succeed to add word", K(ObString(word_len, word)), K(word_freq));
+    }
   }
   return ret;
 }
@@ -110,6 +129,9 @@ void ObBEngFTParser::reset()
   english_analyzer_.reset();
   doc_.reset();
   token_stream_ = nullptr;
+  token_copy_buffer_ = nullptr;
+  token_copy_capacity_ = 0;
+  token_copy_used_ = 0;
   is_inited_ = false;
 }
 
