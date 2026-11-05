@@ -1,0 +1,33 @@
+# owner: competition
+# owner group: storage
+# Verify that IK's cached-character dispatch and BENG's copy chunks preserve
+# tokenizer output and full-text MATCH behavior.
+--disable_warnings
+DROP DATABASE IF EXISTS fts_hotpath_regression;
+--enable_warnings
+CREATE DATABASE fts_hotpath_regression;
+USE fts_hotpath_regression;
+
+SELECT JSON_CONTAINS(TOKENIZE('hello world', 'ik'),
+                     JSON_ARRAY('hello', 'world')) AS ik_tokens_ok;
+SELECT JSON_CONTAINS(TOKENIZE('Hello WORLD', 'beng'),
+                     JSON_ARRAY('hello', 'world')) AS beng_tokens_ok;
+# The long input crosses the BENG token-copy chunk boundary.
+SELECT JSON_EXTRACT(
+  TOKENIZE(REPEAT('alpha beta gamma ', 70), 'beng', '[{"output":"all"}]'),
+  '$.doc_len') AS beng_long_doc_tokens;
+
+CREATE TABLE docs (
+  id INT PRIMARY KEY,
+  ik_text TEXT,
+  beng_text TEXT
+);
+INSERT INTO docs VALUES
+  (1, 'OceanBase database search', 'OceanBase database search'),
+  (2, 'Hello world', 'Hello world');
+ALTER TABLE docs ADD FULLTEXT INDEX fts_ik(ik_text) WITH PARSER ik;
+ALTER TABLE docs ADD FULLTEXT INDEX fts_beng(beng_text) WITH PARSER beng;
+SELECT COUNT(*) AS ik_match_count FROM docs WHERE MATCH(ik_text) AGAINST('oceanbase');
+SELECT COUNT(*) AS beng_match_count FROM docs WHERE MATCH(beng_text) AGAINST('oceanbase');
+
+DROP DATABASE fts_hotpath_regression;
