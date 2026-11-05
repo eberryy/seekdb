@@ -134,11 +134,12 @@ int ObIKFTParser::process_one_char(TokenizeContext &ctx,
                                    const ObFTCharUtil::CharType type)
 {
   int ret = OB_SUCCESS;
-  // proces by char with all segmenters
-  for (ObList<ObIIKProcessor *, ObIAllocator>::iterator iter = segmenters_.begin();
-       OB_SUCC(ret) && iter != segmenters_.end();
-       iter++) {
-    if (OB_FAIL((*iter)->process(ctx))) {
+  // process_next_batch() has already loaded the character and its type.
+  // Reuse those values for all four processors instead of fetching them
+  // separately through TokenizeContext on every processor invocation.
+  // Preserve the original processor order and stop on the first error.
+  for (int64_t i = 0; OB_SUCC(ret) && i < segmenters_.count(); ++i) {
+    if (OB_FAIL(segmenters_.at(i)->do_process(ctx, ch, char_len, type))) {
     }
   }
   return ret;
